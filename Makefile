@@ -1,4 +1,4 @@
-UUID = "forge@jmmaranan.com"
+UUID = "forge-rebuild@jmmaranan.com"
 INSTALL_PATH = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 MSGSRC = $(wildcard po/*.po)
 

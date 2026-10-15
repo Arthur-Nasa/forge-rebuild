@@ -16,6 +16,11 @@
  *
  */
 
+// Modified with AI assistance for personal/educational use in GNOME Shell 50.
+// Do NOT upload to extensions.gnome.org (EGO) unless you understand JavaScript
+// and can maintain this code.
+// Reference: https://blogs.gnome.org/jrahmatzadeh/2026/07/27/ego-ai-reference/
+
 // Gnome imports
 import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";

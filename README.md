@@ -1,9 +1,16 @@
-# Forge needs a NEW MAINTAINER
+# Forge Rebuild (GNOME 50 Port)
 
-Forge is a GNOME Shell extension that provides tiling/window management **_AND_** is looking for a new owner or maintainer:
+Este repositório é um fork do [forge-ext/forge](https://github.com/forge-ext/forge) voltado ao **GNOME Shell 50**, atualizando componentes visuais do **Libadwaita**, APIs do **GJS** e preparando a base de código para um plano estruturado de refatoração modular.
+
+> 🤖 **Aviso de Uso de Inteligência Artificial**: Este projeto utiliza assistência de IA para testes, modernização de código e aprendizado arquitetural. Veja a documentação detalhada e o inventário completo de alterações em [AI_TRANSPARENCY.md](AI_TRANSPARENCY.md).
+
+---
+
+### Forge Upstream
+O projeto upstream Forge está buscando novos mantenedores:
 - https://github.com/orgs/forge-ext/discussions/276
 - https://github.com/forge-ext/forge/issues/336
-- Forge By Claude and @jcrussell - please check it out! https://github.com/jcrussell/forge
+- Outros forks comunitários: https://github.com/jcrussell/forge
 
 ## Features
 

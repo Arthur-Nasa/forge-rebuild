@@ -11,6 +11,8 @@ Este documento é o registro vivo de todas as descobertas arquiteturais, pontos 
 4. [Hot Swap Inteligente com Workspace Offloading](#4-hot-swap-inteligente-com-workspace-offloading)
 5. [Identificação Única por EDID e Perfis por Monitor](#5-identificação-única-por-edid-e-perfis-por-monitor)
 6. [Modernizações de APIs GJS, Libadwaita e EGO](#6-modernizações-de-apis-gjs-libadwaita-e-ego)
+7. [Otimização de Energia no Focus on Hover (Fim do Polling de 16ms)](#7-otimização-de-energia-no-focus-on-hover)
+8. [Plano de Modularização de `window.js` (Decomposição do Monólito de 2.900 Linhas)](#8-plano-de-modularização-de-windowjs)
 
 ---
 
@@ -101,3 +103,69 @@ O Mutter expõe dados de hardware via EDID:
 - [x] **Remoção de Checagens Legadas**: Eliminado `Utils.isGnomeGTE(45)` em [lib/extension/indicator.js](file:///home/arthur-nasa/Forge%20refactor/lib/extension/indicator.js).
 - [x] **Documentação de Transparência de IA**: Criado [AI_TRANSPARENCY.md](file:///home/arthur-nasa/Forge%20refactor/AI_TRANSPARENCY.md) alinhado às diretrizes de revisão do EGO.
 - [ ] **Próximo**: Substituir wrappers legados de [lib/prefs/widgets.js](file:///home/arthur-nasa/Forge%20refactor/lib/prefs/widgets.js) pelos componentes oficiais nativos do Libadwaita (`Adw.SwitchRow`, `Adw.ComboRow`).
+
+---
+
+## 7. Otimização de Energia no Focus on Hover (Fim do Polling de 16ms)
+*Eliminando desperdício de CPU e dreno de bateria em laptops e conversíveis*
+
+### Diagnóstico no Código Herdado:
+- **Loop Contínuo de 60Hz** ([lib/extension/window.js:87-97](file:///home/arthur-nasa/Forge%20refactor/lib/extension/window.js#L87-L97) e [2353](file:///home/arthur-nasa/Forge%20refactor/lib/extension/window.js#L2353)): Quando `focus-on-hover` está ativado, o Forge registra um `GLib.timeout_add(16, ...)` ininterrupto.
+- A cada **16 milissegundos**, mesmo se o usuário não encostar no mouse:
+  1. Chama `global.get_pointer()` para ler as coordenadas da tela.
+  2. Invoca `global.get_window_actors()`.
+  3. Itera por todas as janelas do compositor calculando intersecções retangulares.
+  4. Dispara `metaWindow.focus(...)` e `metaWindow.raise()`.
+- **Impacto Real em Hardware Móvel**: Esse polling impede a CPU de entrar em estados de repouso profundo (C-states), esquentando a máquina e drenando a bateria consideravelmente (especialmente sensível em laptops finos como o MSI Summit Flip).
+
+### Proposta para o Forge Rebuild:
+1. **Integração com o Recurso Nativo do GNOME/Mutter**:
+   - O Mutter já possui gerenciamento de foco por mouse nativo em C (`org.gnome.desktop.wm.preferences focus-mode 'sloppy'` ou `'mouse'`). A extensão deve preferencialmente sincronizar com essa preferência nativa sem necessidade de loops em JavaScript.
+2. **Abordagem Reativa a Eventos de Movimento (se controlado pela extensão)**:
+   - Substituir o timeout contínuo por escuta reativa no palco do Clutter: `global.stage.connect('captured-event', ...)` filtrando estritamente `Clutter.EventType.MOTION`.
+   - Adicionar verificação de delta mínimo de movimento ($> 2$ pixels) e *throttling* com `GLib.idle_add` apenas enquanto o ponteiro estiver fisicamente em trânsito.
+
+---
+
+## 8. Plano de Modularização de `window.js` (Decomposição do Monólito de 2.900 Linhas)
+
+### Diagnóstico no Código Herdado:
+O arquivo [lib/extension/window.js](file:///home/arthur-nasa/Forge%20refactor/lib/extension/window.js) atingiu **2.900 linhas** e viola o Princípio da Responsabilidade Única (SRP), acumulando 6 domínios completamente distintos:
+1. **Ciclo de Vida de Sinais**: Escuta mais de 10 sinais de `Meta.Display`, `Meta.WorkspaceManager`, e instâncias de `Meta.Window`.
+2. **Rastreamento de Foco e Mouse**: Loop de polling de 16ms, detecção de janela sob o cursor e ativação de foco.
+3. **Mutter Grabs (Live Resize e Drag & Drop)**: Intercepta `grab-op-begin`/`grab-op-end`, recalcula porcentagens em tempo real e desenha retângulo de drop.
+4. **Decorações Visuais e Bordas**: Gerencia atores `St.Bin` anexados a `global.window_group` para bordas ativas e indicadores de split.
+5. **Regras de Janelas Flutuantes**: Lógica de exceções, checagem de `wm_class` e persistência do `windows.json`.
+6. **Orquestração de Comandos de Layout**: Ponte entre keybindings, indicator de quick settings e a árvore (`Tree`).
+
+### Problemas Adicionais Identificados:
+- **Monkey-Patching de Objetos do Compositor**: O Forge injeta propriedades diretamente nos atores do Mutter (ex: `windowActor.border = splitBorder`, `node.initRect`, `focusNodeWindow.previewHint`).
+  - *Risco EGO*: As diretrizes de revisão recomendam não poluir protótipos e objetos do Mutter, pois retêm referências que impedem o Garbage Collector (GC) de desalocar janelas destruídas, gerando vazamento progressivo de memória RAM.
+
+### Proposta de Arquitetura Modular (`lib/extension/wm/`):
+Decompor o monólito em submódulos especialistas de baixo acoplamento:
+
+```
+lib/extension/
+├── window.js (ou wm/manager.js)   <-- Coordenador enxuto (< 350 linhas)
+└── wm/
+    ├── signals.js                 <-- Registro, desconexão limpa e guardas de ciclo de vida
+    ├── grabs.js                   <-- Resize interativo, Drag & Drop e cálculo de deltas
+    ├── decorations.js             <-- Atores St.Bin, bordas ativas e hints visuais sem monkey-patching
+    ├── focus.js                   <-- Gestão de foco reativo (sem polling)
+    └── float.js                   <-- Regras de janelas flutuantes, exemptions e persistência
+```
+
+#### Responsabilidades dos Novos Módulos:
+- **`wm/signals.js`**:
+  Centraliza todos os `connect` e `disconnect`. Mantém uma lista estrita de `signalIds` com método `destroy()` atômico que garante que **nenhum sinal órfão** permaneça ativo se a extensão for desabilitada (requisito obrigatório de revisão do EGO).
+- **`wm/grabs.js`**:
+  Isola a máquina de estados de redimensionamento e movimentação do Mutter (`Meta.GrabOp`). Calcula as redistribuições de `percent` dos nós irmãos apenas quando a operação é confirmada.
+- **`wm/decorations.js`**:
+  Substitui o monkey-patching (`windowActor.border`) por uma coleção desacoplada (`Map<Meta.Window, DecorationActors>`). Ao detectar o fechamento da janela (`destroy`), remove os atores filhos de `global.window_group` imediatamente.
+- **`wm/focus.js`**:
+  Implementa o foco reativo por movimento de ponteiro, eliminando a dependência do timer de 16ms.
+- **`wm/float.js`**:
+  Separa a persistência de regras de classes (`windows.json`), diálogos modais e exceções de floating, expondo um método limpo `shouldFloat(metaWindow): boolean`.
+- **`window.js` (Coordenador)**:
+  Apenas recebe chamadas de alto nível, conecta os eventos aos métodos da árvore (`Tree`) e comanda a re-renderização (`renderTree`).

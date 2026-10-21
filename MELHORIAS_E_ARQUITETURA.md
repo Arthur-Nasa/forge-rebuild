@@ -15,6 +15,7 @@ Este documento é o registro vivo de todas as descobertas arquiteturais, pontos 
 8. [Plano de Modularização de `window.js` (Decomposição do Monólito de 2.900 Linhas)](#8-plano-de-modularização-de-windowjs)
 9. [Atalhos Globais (`keybindings.js`) & Eliminação de Código Morto](#9-atalhos-globais-keybindingsjs--eliminação-de-código-morto)
 10. [Correções no Quick Settings (`indicator.js`) & UX Premium](#10-correções-no-quick-settings-indicatorjs--ux-premium)
+11. [Modernização com Libadwaita Puro & Correção do Float das Preferências](#11-modernização-com-libadwaita-puro--correção-do-float-das-preferências)
 
 ---
 
@@ -205,4 +206,26 @@ lib/extension/
 3. **Evolução de UX para o GNOME 50**:
    - Adicionar subtítulo dinâmico no botão do Quick Settings informando o estado da workspace ativa (ex: `Tiling · HSplit (3 janelas)` ou `Tiling · Tabbed`).
    - Adicionar um seletor visual de layouts no submenu do Quick Settings, permitindo ao usuário alternar facilmente entre divisões verticais, horizontais ou em abas com um clique.
+
+---
+
+## 11. Modernização com Libadwaita Puro & Correção do Float das Preferências
+
+### Diagnóstico no Código Herdado:
+- **Wrappers Manuais Obsoletos em `widgets.js`** ([lib/prefs/widgets.js](file:///home/arthur-nasa/Forge%20refactor/lib/prefs/widgets.js)):
+  O arquivo implementa classes próprias como `SwitchRow`, `SpinButtonRow` e `DropDownRow` montando manualmente `Gtk.Switch`, `Gtk.SpinButton` e `Gtk.DropDown` dentro de `Adw.ActionRow`. O `DropDownRow` contém mais de 100 linhas apenas para tratar tipos e mapeamento de variantes do `GVariant`.
+- **Uso de `Gtk.ColorButton` Obsoleto**:
+  No GTK 4.10+, o `Gtk.ColorButton` foi descontinuado em favor do `Gtk.ColorDialogButton` acompanhado de um `Gtk.ColorDialog`.
+- **Bug de Captura da Própria Janela de Configurações** ([config/windows.json:3](file:///home/arthur-nasa/Forge%20refactor/config/windows.json#L3)):
+  A regra de exceção para não ladrilhar a janela de preferências busca por `"wmTitle": "Forge Settings"`. Como alteramos o título para `"Forge Rebuild Settings"`, a janela de preferências corre o risco de ser capturada pelo tiling e dividida pela metade na tela.
+
+### Proposta para o Forge Rebuild:
+1. Atualizar imediatamente a regra em `config/windows.json` para `"wmTitle": "Forge Rebuild Settings"` e tornar o matcher de classes mais tolerante.
+2. Substituir os componentes customizados de `widgets.js` pelas classes nativas oficiais do Libadwaita:
+   - `Adw.SwitchRow` (com vinculação direta de GSettings).
+   - `Adw.SpinRow` (nativa para inteiros e limites de valores).
+   - `Adw.ComboRow` (com modelo nativo e sem código de reflexão de GVariant).
+   - `Gtk.ColorDialogButton` para seleção de cores de bordas.
+3. Isso remove complexidade, garante respeito às diretrizes de acessibilidade e HIG do GNOME e reduz significativamente o código de preferências.
+
 

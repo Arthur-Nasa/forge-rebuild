@@ -13,6 +13,8 @@ Este documento é o registro vivo de todas as descobertas arquiteturais, pontos 
 6. [Modernizações de APIs GJS, Libadwaita e EGO](#6-modernizações-de-apis-gjs-libadwaita-e-ego)
 7. [Otimização de Energia no Focus on Hover (Fim do Polling de 16ms)](#7-otimização-de-energia-no-focus-on-hover)
 8. [Plano de Modularização de `window.js` (Decomposição do Monólito de 2.900 Linhas)](#8-plano-de-modularização-de-windowjs)
+9. [Atalhos Globais (`keybindings.js`) & Eliminação de Código Morto](#9-atalhos-globais-keybindingsjs--eliminação-de-código-morto)
+10. [Correções no Quick Settings (`indicator.js`) & UX Premium](#10-correções-no-quick-settings-indicatorjs--ux-premium)
 
 ---
 
@@ -169,3 +171,38 @@ lib/extension/
   Separa a persistência de regras de classes (`windows.json`), diálogos modais e exceções de floating, expondo um método limpo `shouldFloat(metaWindow): boolean`.
 - **`window.js` (Coordenador)**:
   Apenas recebe chamadas de alto nível, conecta os eventos aos métodos da árvore (`Tree`) e comanda a re-renderização (`renderTree`).
+
+---
+
+## 9. Atalhos Globais (`keybindings.js`) & Eliminação de Código Morto
+
+### Diagnóstico no Código Herdado:
+- **Código Morto de X11** ([lib/extension/keybindings.js:50-66, 94-150](file:///home/arthur-nasa/Forge%20refactor/lib/extension/keybindings.js#L50-L66)): Mantém cerca de 70 linhas de métodos obsoletos baseados em `global.display.grab_accelerator` e escutas manuais de `accelerator-activated` da época do X11/GNOME 3, totalmente desnecessárias no Wayland com `Main.wm.addKeybinding`.
+- **"Magic Numbers" Frágeis para Modificadores de Mouse** ([lib/extension/keybindings.js:156-174](file:///home/arthur-nasa/Forge%20refactor/lib/extension/keybindings.js#L156-L174)):
+  A verificação de arrastar janelas com tecla pressionada (`allowDragDropTile`) compara o estado bruto do ponteiro contra inteiros literais (`64`, `320`, `8`, `264`, `4`, `260`). Se o usuário estiver com `CapsLock`, `NumLock` ou botões auxiliares pressionados, a soma binária não bate exatamente e o drag-and-drop falha.
+- **Boilerplate Repetitivo de 300 Linhas** ([lib/extension/keybindings.js:177-491](file:///home/arthur-nasa/Forge%20refactor/lib/extension/keybindings.js#L177-L491)):
+  Repete dezenas de vezes a construção de arrays unitários e iteração com `forEach` (ex: `let actions = [{ name: 'Focus', direction: 'Left' }]; actions.forEach(...)`) para acionar uma única chamada de comando.
+
+### Proposta para o Forge Rebuild:
+1. Purgar o código morto legado de `grab_accelerator`.
+2. Substituir comparações inteiras por máscaras bitwise formais com os enums do Clutter:
+   `Boolean(modState & Clutter.ModifierType.MOD4_MASK)` para Super, `MOD1_MASK` para Alt e `CONTROL_MASK` para Ctrl.
+3. Compactar as definições de atalhos em uma tabela de mapeamento declarativa, reduzindo o arquivo de 494 linhas para menos de 120 linhas limpas.
+
+---
+
+## 10. Correções no Quick Settings (`indicator.js`) & UX Premium
+
+### Diagnóstico no Código Herdado:
+- **Vazamento de Memória (Signal Leak no Bloqueio de Tela)** ([lib/extension/indicator.js:118](file:///home/arthur-nasa/Forge%20refactor/lib/extension/indicator.js#L118)):
+  `FeatureIndicator` conecta uma função anônima ao sinal `changed` de `Gio.Settings` sem armazenar o ID de conexão e sem implementar o método `destroy()`. Ao bloquear/desbloquear a tela (`unlock-dialog`), o `extension.js` recria o indicador, acumulando múltiplos listeners orfãos em memória (violação direta das diretrizes EGO).
+- **Bug de Visibilidade do Ícone na Barra Superior** ([lib/extension/indicator.js:122](file:///home/arthur-nasa/Forge%20refactor/lib/extension/indicator.js#L122)):
+  No construtor, o ícone só fica visível se ambos `tiling-mode-enabled` E `quick-settings-enabled` forem verdadeiros (`&&`). Porém, no listener de `changed`, ele seta a visibilidade baseado apenas no valor da chave que acabou de mudar. Se o usuário desativou a exibição do ícone no painel e depois alternou o modo tiling por atalho, o ícone reaparece indevidamente.
+
+### Proposta para o Forge Rebuild:
+1. Implementar o ciclo de vida limpo em `FeatureIndicator`: desconectar formalmente sinais no `destroy()` ou utilizar `Settings.bind()` bidirecional.
+2. Corrigir a lógica de visibilidade para que respeite consistentemente `tilingModeEnabled && quickSettingsEnabled`.
+3. **Evolução de UX para o GNOME 50**:
+   - Adicionar subtítulo dinâmico no botão do Quick Settings informando o estado da workspace ativa (ex: `Tiling · HSplit (3 janelas)` ou `Tiling · Tabbed`).
+   - Adicionar um seletor visual de layouts no submenu do Quick Settings, permitindo ao usuário alternar facilmente entre divisões verticais, horizontais ou em abas com um clique.
+
